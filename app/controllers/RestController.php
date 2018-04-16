@@ -74,5 +74,122 @@ class RestController extends Controller
         return ['message' => 'deleted'];
 
     }
+    
+     ## save list
+    public function actionSavel()
+    {
+        ## take json collection
+        $hash = json_decode(Yii::$app->request->params_json(), true);
 
+        ## is this array?
+        if(gettype($hash) != 'array') throw new HttpException(400, 'WANT ARRAY');
+
+        ## for models list
+        $i = 0;
+
+        foreach ($hash as $itm) { $i++;
+            ## Decides to UPDATE
+            if( isset( $itm["id"] ) ) {
+                $model[$i] = call_user_func( $this->model . '::findOne', $itm["id"] );
+
+            }
+
+            ## Decides to INSERT
+            if( !isset($model[$i]) )  {
+                $model[$i] = new $this->model;
+
+            }
+
+            ## set values and validate
+            $model[$i]->attributes = $itm;
+            $model[$i]->validate();
+
+            ## if row data is not valid, set error to $invalid[] array
+            foreach($model[$i]->errors as $err){
+                $invalid[] = $err;
+            }
+
+        }
+
+        ## if errors exists
+        if( isset($invalid) ) return $invalid;
+
+        ## start transaction
+        $connection  = \Yii::$app->db;
+        $transaction = $connection->beginTransaction();
+
+        foreach( $model as $mod ) {
+            try {
+                $mod->save();
+                $model_hash[] = $mod;
+            }
+            catch (\yii\db\Exception $e) {
+                $errors = 1;
+            }
+        }
+
+        if(isset($errors)){
+            $transaction->rollBack();
+
+        } else {
+            $transaction->commit();
+
+        }
+
+        return $model_hash;
+
+    }  
+
+    
+    public function actionUnfold()
+    {
+        $this->_join('unfold');
+
+    }
+
+
+    public function actionExpand()
+    {
+        $this->_join('expand');
+
+    }
+
+
+    public function actionExpandleft()
+    {
+        $this->_join('expandleft');
+
+    }
+
+    
+    private function _join($type)
+    {
+        list($from, $to) = preg_split('/:/', $this->arg["m"] ); // from:to
+
+        $q = (new Query())->select("json_map( (row_to_json($from.*) || json_agg($to.*)::text ) ) AS item")->from("$from");
+
+        if( $type == 'expand' ) {
+            $q->innerJoin("$to", "$from.id = $to.$from" . "_id");
+
+        }
+
+        if( $type == 'unfold' ) {
+            $q->innerJoin("$to", "$to.id   = $from.$to" . "_id");
+
+        }
+
+        if( $type == 'expandleft' ) {
+            $q->leftJoin("$to", "$from.id = $to.$from" . "_id");
+
+        }
+
+        if( $this->_where() ) $q->where( $this->arg["_where"] );
+
+        print '['.implode(',', array_column( $q->groupBy("$from.id")->all(), 'item') ).']';
+
+    }
+
+
+    
+    
 }
